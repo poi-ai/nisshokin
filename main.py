@@ -5,8 +5,6 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-file_created = False
-
 def main():
     '''主処理'''
     # 対象外の証券コードをCSVから取得
@@ -15,6 +13,13 @@ def main():
         reader = csv.reader(f)
         for row in reader:
             na_stock_code_list.append(row[0])
+
+    # 各銘柄の最新取得日をCSVから取得
+    recorded_date_list = []
+    with open('recorded_date.csv', 'r', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        for row in reader:
+            recorded_date_list.append({row[0]: row[1]})
 
     # 証券コード1000~9999
     for stock_code in range(1000, 100000):
@@ -27,20 +32,29 @@ def main():
         if not result:
             continue
 
+        # 指定した証券コードの最新データ日(≠最新取得日)を取得
+        recorded_date = recorded_date_list[str(stock_code)]
+
         # IR BANKから日証金情報を取得
         url = f'https://irbank.net/{stock_code}/nisshokin'
-        # 取得関数呼び出し
-        get_data(str(stock_code), url)
+        result, latest_date = get_data(str(stock_code), url, recorded_date, True)
 
+        if not result:
+            pass
 
-def get_data(stock_code, url):
+        if latest_date != '9999/12/31':
+            with open('recorded_date.csv', 'a', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                writer.writerows([str(stock_code), latest_date])
+
+def get_data(stock_code, url, recorded_date, latest_flag):
     '''指定したURLに記載されている日証金情報を取得'''
-    global file_created
-    time.sleep(1)
+    latest_date = '9999/12/31'
 
     # HTML取得
+    time.sleep(1)
     r = requests.get(url)
-    soup = BeautifulSoup(r.content, 'html.parser')
+    soup = BeautifulSoup(r.content, 'lxml')
 
     # 日証金テーブルの切り出し
     table = soup.find('table', class_ = 'bar')
@@ -64,7 +78,7 @@ def get_data(stock_code, url):
             year = int(td_year.text)
             # 2019年以前のデータは取らない
             if year == 2019:
-                return
+                return True, latest_date
             continue
 
         # 年度記載以外の場合
@@ -78,12 +92,17 @@ def get_data(stock_code, url):
             add_data_url = f'https://irbank.net/{link}'
 
             # 再帰で追加読み込みされたデータを再帰で読み込み
-            get_data(stock_code, add_data_url)
+            get_data(stock_code, add_data_url, recorded_date, False)
             continue
 
         # 各データ切り出し
         # 日付
         date = f'{year}/{td_info[0].text}'
+
+        # 既に記録済みの最新日より古い日付のデータは記録しない
+        if date <= recorded_date:
+            return True, latest_date
+
         # 貸株残/増減
         kashikabu_zan = td_info[1].text.replace(',', '').replace('-', '+-').split('+')
         if len(kashikabu_zan) == 1: kashikabu_zan.append('0')
@@ -102,6 +121,13 @@ def get_data(stock_code, url):
             row = [stock_code, date, kashikabu_zan[0], kashikabu_zan[1], kashikabu_type[0], kashikabu_type[1],
                    yushi_zan[0], yushi_zan[1], yushi_type[0], yushi_type[1]]
             writer.writerow(row)
+
+        if first_flag:
+           latest_date = date
+           first_flag = False
+
+    return True, latest_date
+
 
 def br_to_comma(content):
     '''bs4.element.Tag型のデータから改行をカンマに変え他のHTMLタグは取り除く'''
