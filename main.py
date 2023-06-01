@@ -42,11 +42,11 @@ def main():
 
         # IR BANKから日証金情報を取得
         url = f'https://irbank.net/{stock_code}/nisshokin'
-        result, latest_date = get_data(str(stock_code), url, recorded_date, True)
+        result = get_data(str(stock_code), url, recorded_date, True)
 
         # 処理に失敗した場合
         if not result:
-            pass
+            raise
 
 
 def get_data(stock_code, url, recorded_date, latest_flag):
@@ -152,14 +152,13 @@ def get_data(stock_code, url, recorded_date, latest_flag):
                     rows.append([str(stock_code), date])  # 新しい行を末尾に追加
 
             # 更新したデータを上書き
-            with open('crecorded_date.csv', 'w', newline='') as file:
+            with open('recorded_date.csv', 'w', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerows(rows)
 
             latest_flag = False
 
     return True
-
 
 def br_to_comma(content):
     '''bs4.element.Tag型のデータから改行をカンマに変え他のHTMLタグは取り除く'''
@@ -196,10 +195,13 @@ def get_price(stock_code):
 
     # 取れなかったらエラー
     if int(price) == -1:
-        pass # TODO エラー処理
+        with open('failed_stock_code.csv', 'a', encoding = 'utf-8', newline = '') as f:
+            writer = csv.writer(f, lineterminator = '\n')
+            writer.writerow([stock_code, time.strftime('%Y/%m/%d'), 'not get price'])
+        return False
 
-    # 500億以上は対象外
-    if int(price) >= 50000:
+    # 300億以上は対象外
+    if int(price) >= 30000:
         with open('na_stock_code.csv', 'a', encoding = 'utf-8', newline = '') as f:
             writer = csv.writer(f, lineterminator = '\n')
             writer.writerow([stock_code, time.strftime('%Y/%m/%d'), 'too big'])
