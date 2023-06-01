@@ -15,11 +15,11 @@ def main():
             na_stock_code_list.append(row[0])
 
     # 各銘柄の最新取得日をCSVから取得
-    recorded_date_list = []
+    recorded_date_dict = {}
     with open('recorded_date.csv', 'r', encoding='utf-8') as file:
         reader = csv.reader(file)
         for row in reader:
-            recorded_date_list.append({row[0]: row[1]})
+            recorded_date_dict[row[0]] = row[1]
 
     # 証券コード1000~9999
     for stock_code in range(1000, 100000):
@@ -29,30 +29,41 @@ def main():
 
         # みんかぶから上場廃止/時価総額チェック
         result = get_price(stock_code)
+        # 上場廃止or時価総額500億以上ならパス
         if not result:
             continue
 
         # 指定した証券コードの最新データ日(≠最新取得日)を取得
-        recorded_date = recorded_date_list[str(stock_code)]
+        if str(stock_code) in recorded_date_dict:
+            recorded_date = recorded_date_dict[str(stock_code)]
+        else:
+            # CSVにデータがない(=記録したことがない)銘柄は最新取得日を1年にする
+            recorded_date = '0001/01/01'
 
         # IR BANKから日証金情報を取得
         url = f'https://irbank.net/{stock_code}/nisshokin'
         result, latest_date = get_data(str(stock_code), url, recorded_date, True)
 
+        # 処理に失敗した場合
         if not result:
             pass
 
-        if latest_date != '9999/12/31':
-            with open('recorded_date.csv', 'a', newline='', encoding='utf-8') as file:
-                writer = csv.writer(file)
-                writer.writerows([str(stock_code), latest_date])
 
 def get_data(stock_code, url, recorded_date, latest_flag):
-    '''指定したURLに記載されている日証金情報を取得'''
-    latest_date = '9999/12/31'
+    '''指定したURLに記載されている日証金情報を取得
 
+    Args:
+        stock_code(str): 取得対象の証券コード
+        url(str): 取得対象ページのURL
+        recorded_date(str,yyyy/mm/dd): 記録済みデータの中で最新の日付
+        ※これ以前の日付のデータは取得しない
+        latest_flag(bool): 取得対象が最新の日付を含むか
+
+    Return:
+        result(bool): 処理が正常に完了したか(取得対象が1件以上存在したか。ではない)
+    '''
     # HTML取得
-    time.sleep(1)
+    time.sleep(2)
     r = requests.get(url)
     soup = BeautifulSoup(r.content, 'lxml')
 
@@ -64,7 +75,7 @@ def get_data(stock_code, url, recorded_date, latest_flag):
         with open('na_stock_code.csv', 'a', encoding = 'utf-8', newline = '') as f:
             writer = csv.writer(f, lineterminator = '\n')
             writer.writerow([stock_code, time.strftime('%Y/%m/%d'), 'not exist'])
-        return
+        return True
 
     tbody = table.find('tbody')
     tr_list = tbody.find_all('tr')
@@ -78,7 +89,7 @@ def get_data(stock_code, url, recorded_date, latest_flag):
             year = int(td_year.text)
             # 2019年以前のデータは取らない
             if year == 2019:
-                return True, latest_date
+                return True
             continue
 
         # 年度記載以外の場合
@@ -86,9 +97,9 @@ def get_data(stock_code, url, recorded_date, latest_flag):
 
         # 追加読み込みボタン列か日証金情報が載っている列か判定
         if len(td_info) == 1:
-            a = td_info[0].find('a')
+            a_tag = td_info[0].find('a')
             # 追加読込先のURL取得
-            link = str(a.get('href'))
+            link = str(a_tag.get('href'))
             add_data_url = f'https://irbank.net/{link}'
 
             # 再帰で追加読み込みされたデータを再帰で読み込み
@@ -101,7 +112,7 @@ def get_data(stock_code, url, recorded_date, latest_flag):
 
         # 既に記録済みの最新日より古い日付のデータは記録しない
         if date <= recorded_date:
-            return True, latest_date
+            return True
 
         # 貸株残/増減
         kashikabu_zan = td_info[1].text.replace(',', '').replace('-', '+-').split('+')
@@ -122,11 +133,32 @@ def get_data(stock_code, url, recorded_date, latest_flag):
                    yushi_zan[0], yushi_zan[1], yushi_type[0], yushi_type[1]]
             writer.writerow(row)
 
-        if first_flag:
-           latest_date = date
-           first_flag = False
+        # 記録済み日付管理CSVの日付より最新の日付データを取得した場合はCSVを更新する
+        if latest_flag:
+            # CSVから同じコードの行があるかチェック
+            with open('recorded_date.csv', 'r', newline='') as file:
+                reader = csv.reader(file)
+                rows = list(reader)
 
-    return True, latest_date
+                found_flag = False
+                for row in rows:
+                    if row[0] == stock_code:
+                        row[1] = date
+                        found_flag = True
+                        break
+
+                # 無ければ末尾に追記
+                if not found_flag:
+                    rows.append([str(stock_code), date])  # 新しい行を末尾に追加
+
+            # 更新したデータを上書き
+            with open('crecorded_date.csv', 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerows(rows)
+
+            latest_flag = False
+
+    return True
 
 
 def br_to_comma(content):
@@ -141,9 +173,8 @@ def br_to_comma(content):
 
 def get_price(stock_code):
     '''みんかぶから上場廃止と時価総額を取ってくる'''
-    #time.sleep(2)
-    URL = f'https://minkabu.jp/stock/{stock_code}'
-    r = requests.get(URL)
+    time.sleep(2)
+    r = requests.get(f'https://minkabu.jp/stock/{stock_code}')
     soup = BeautifulSoup(r.content, 'lxml')
 
     # 上場廃止チェック
@@ -183,9 +214,5 @@ if __name__ == '__main__':
     #get_price(2172) # インサイト
 
 
-# TODO 二度走らせた時に同じデータを書き込まないように
-# memo 証券コード, 日付でユニーク
-### TODO 毎度でかいcsvを読み込ませたくはない
-### 年ごとにわけるか、重複防止用のユニークだけ記載したファイルを別途作るか
-### TODO 一回でもユニークチェックに引っかかったらそれ以前の日付はすでに取得済みとみなしてcontinue
 # TODO エラーが出たときのリカバリ処理(try-except)
+## TODO 特に一部データ取得成功で一部失敗とかいう場合
