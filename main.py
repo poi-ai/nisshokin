@@ -88,7 +88,7 @@ def get_data(stock_code, url, recorded_date, latest_flag):
         if not td_year is None:
             year = int(td_year.text)
             # 2019年以前のデータは取らない
-            if year == 2019:
+            if year <= 2019:
                 return True
             continue
 
@@ -189,16 +189,25 @@ def get_price(stock_code):
     trs = list(itertools.chain.from_iterable([table.find_all('tr') for table in tables]))
 
     for tr in trs:
-        price_match = re.search('時価総額(.+)百万円', tr.text)
+        price_match = re.search('時価総額([0-9,]+)百万円', tr.text.replace('\n', ''))
         if price_match != None:
             price = price_match.groups()[0].replace(',', '')
 
-    # 取れなかったらエラー
+    # 取れなかったらエラーとしてファイルに書き込む、取れたら削除
     if int(price) == -1:
         with open('failed_stock_code.csv', 'a', encoding = 'utf-8', newline = '') as f:
             writer = csv.writer(f, lineterminator = '\n')
             writer.writerow([stock_code, time.strftime('%Y/%m/%d'), 'not get price'])
         return False
+    else:
+        # 取れたら削除
+        with open('failed_stock_code.csv', "r", encoding="utf-8") as file:
+            reader = csv.reader(file)
+            rows = [row for row in reader if str(row[0]) != str(stock_code)]
+
+        with open('failed_stock_code.csv', "w", encoding="utf-8", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerows(rows)
 
     # 300億以上は対象外
     if int(price) >= 30000:
@@ -211,7 +220,8 @@ def get_price(stock_code):
 
 
 if __name__ == '__main__':
-    main()
+    #main()
+    get_price(1305)
     #get_price(7203) # ファストリ
     #get_price(2172) # インサイト
 
