@@ -1,5 +1,7 @@
 import csv
+import datetime
 import itertools
+import pytz
 import time
 import re
 import requests
@@ -7,6 +9,14 @@ from bs4 import BeautifulSoup
 
 def main():
     '''主処理'''
+    # 曜日チェック
+    jst = pytz.timezone('Asia/Tokyo')
+    weekday = datetime.datetime.now(jst).weekday()
+
+    # 日曜か月曜の場合は取得しない
+    if weekday == 0 or weekday == 6:
+        exit()
+
     # 対象外の証券コードをCSVから取得
     na_stock_code_list = []
     with open('na_stock_code.csv', 'r', encoding='utf-8') as f:
