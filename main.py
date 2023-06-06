@@ -228,10 +228,27 @@ def get_price(stock_code):
 
     return True
 
-def send_line_report():
-    '''LINEで送信する'''
-    pass
+def create_report():
+    '''貸株に異常な増減のあった銘柄を抽出'''
+    report = ''
 
+    return report
+
+def line_send(message):
+    ''' LINE Notify経由でメッセージを送信する
+
+    Args:
+        message(str) : LINE送信するメッセージ内容
+
+    '''
+    TOKEN = ''
+
+    # リクエスト内容を設定
+    headers = {'Authorization': f'Bearer {TOKEN}'}
+    data = {'message': f'{message}'}
+
+    # メッセージ送信
+    requests.post('https://notify-api.line.me/api/notify', headers = headers, data = data)
 
 if __name__ == '__main__':
     main()
