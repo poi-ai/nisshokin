@@ -13,8 +13,8 @@ def main():
     jst = pytz.timezone('Asia/Tokyo')
     weekday = datetime.datetime.now(jst).weekday()
 
-    # 日曜か月曜の場合は取得しない
-    if weekday == 0 or weekday == 6:
+    # 前日が営業日でない場合は取得しない
+    if weekday == 5 or weekday == 6:
         exit()
 
     # 対象外の証券コードをCSVから取得
@@ -228,10 +228,14 @@ def get_price(stock_code):
 
     return True
 
+def send_line_report():
+    '''LINEで送信する'''
+    pass
+
 
 if __name__ == '__main__':
-    #main()
-    get_price(1305)
+    main()
+    #get_price(1305)
     #get_price(7203) # ファストリ
     #get_price(2172) # インサイト
 
