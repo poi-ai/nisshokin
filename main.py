@@ -1,6 +1,7 @@
 import csv
 import datetime
 import itertools
+import os
 import pytz
 import time
 import re
@@ -9,27 +10,17 @@ from bs4 import BeautifulSoup
 
 def main():
     '''主処理'''
+    global now
+
     # 曜日チェック
-    jst = pytz.timezone('Asia/Tokyo')
-    weekday = datetime.datetime.now(jst).weekday()
+    weekday = now.weekday()
 
     # 前日が営業日でない場合は取得しない
     if weekday == 5 or weekday == 6:
         exit()
 
-    # 対象外の証券コードをCSVから取得
-    na_stock_code_list = []
-    with open('na_stock_code.csv', 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            na_stock_code_list.append(row[0])
-
-    # 各銘柄の最新取得日をCSVから取得
-    recorded_date_dict = {}
-    with open('recorded_date.csv', 'r', encoding='utf-8') as file:
-        reader = csv.reader(file)
-        for row in reader:
-            recorded_date_dict[row[0]] = row[1]
+    # 取得対象でない銘柄の証券コードリストと銘柄の最新取得日をCSVから取得
+    na_stock_code_list, recorded_date_dict = extruct_stock_data()
 
     # 証券コード1000~9999
     for stock_code in range(1000, 100000):
@@ -37,11 +28,17 @@ def main():
         if str(stock_code) in na_stock_code_list:
             continue
 
+        '''
+        一度全銘柄でチェックを入れたので当分はチェックを入れない
+        処理最適化後に入れる
+        ただ毎日入れるのは時間がかかりすぎるので、月1とか?
+
         # みんかぶから上場廃止/時価総額チェック
         result = get_price(stock_code)
         # 上場廃止or時価総額500億以上ならパス
         if not result:
             continue
+        '''
 
         # 指定した証券コードの最新データ日(≠最新取得日)を取得
         if str(stock_code) in recorded_date_dict:
@@ -56,8 +53,36 @@ def main():
 
         # 処理に失敗した場合
         if not result:
-            raise
+            pass
 
+    # 取得データで増減率の多かったもののレポートを作成する
+    report = create_report()
+
+    # レポートをLINEで送信する
+    result = line_send(report)
+
+    if not result: pass
+
+    # 一時ファイルの情報を写し、一時ファイルを削除する
+    result = move_data()
+
+def extruct_stock_data():
+    '''取得対象でない銘柄の証券コードリストと銘柄の最新取得日をCSVから取得'''
+    # 対象外の証券コードをCSVから取得
+    na_stock_code_list = []
+    with open('na_stock_code.csv', 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            na_stock_code_list.append(row[0])
+
+    # 各銘柄の最新取得日をCSVから取得
+    recorded_date_dict = {}
+    with open('recorded_date.csv', 'r', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        for row in reader:
+            recorded_date_dict[row[0]] = row[1]
+
+    return na_stock_code_list, recorded_date_dict
 
 def get_data(stock_code, url, recorded_date, latest_flag):
     '''指定したURLに記載されている日証金情報を取得
@@ -135,8 +160,8 @@ def get_data(stock_code, url, recorded_date, latest_flag):
         # 融資内訳(新規/返済)
         yushi_type = br_to_comma(td_info[4]).split(',')
 
-        # データをCSVに追記する
-        with open(f'nisshokin_data_{year}.csv', 'a', newline='') as file:
+        # データをCSVに一時ファイルのCSVに書き込む
+        with open(f'tmp_nisshokin_data_{year}.csv', 'a', newline='') as file:
             writer = csv.writer(file)
 
             row = [stock_code, date, kashikabu_zan[0], kashikabu_zan[1], kashikabu_type[0], kashikabu_type[1],
@@ -229,13 +254,48 @@ def get_price(stock_code):
     return True
 
 def create_report():
-    '''貸株に異常な増減のあった銘柄を抽出'''
-    report = ''
+    '''貸株に異常な増減のあった銘柄を抽出してレポートを作成する'''
+    global now
+
+    report = f'【{now.strftime("%m/%d")}の日証金増減レポート】\n'
+    target_flag = False
+
+    # 今回のプロセスで取得したデータを取得
+    with open('tmp_nisshokin_data_2023.csv', 'r', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        for row in reader:
+            # 貸株が5000株以上増かつ前日比80%以上増 TODO 0除算チェック
+            if (row[3] >= 5000) and (row[3] / row[2] >= 0.8):
+                report += f'[{row[0]}] {row[1]} 残: {row[2]} / 増減: {row[3]}\n'
+                target_flag = True
+
+            # 貸株が5000株以上減かつ前日比80%以上減
+            if (row[3] <= -5000) and (row[3] / row[2] <= -0.8):
+                report += f'[{row[0]}] {row[1]} 残: {row[2]} / 増減: {row[3]}\n'
+                target_flag = True
+
+    if not target_flag: report += '異常増減した銘柄はありませんでした'
 
     return report
 
+def move_data():
+    '''一時ファイルに保存したデータを移動させる'''
+
+    # 一時ファイルからデータ読み込み
+    with open('tmp_nisshokin_data_2023.csv', 'r', newline='', encoding="utf-8") as f:
+        reader = csv.reader(f)
+        data = list(reader)
+
+    # データ書き込み
+    with open('nisshokin_data_2023.csv', 'a', newline='', encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerows(data)
+
+    # 一時ファイル削除
+    os.remove('tmp_nisshokin_data_2023.csv')
+
 def line_send(message):
-    ''' LINE Notify経由でメッセージを送信する
+    '''LINE Notify経由でメッセージを送信する
 
     Args:
         message(str) : LINE送信するメッセージ内容
@@ -251,6 +311,8 @@ def line_send(message):
     requests.post('https://notify-api.line.me/api/notify', headers = headers, data = data)
 
 if __name__ == '__main__':
+    # 現在時刻
+    datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
     main()
     #get_price(1305)
     #get_price(7203) # ファストリ
