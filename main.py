@@ -32,16 +32,22 @@ def main():
             recorded_date_dict[row[0]] = row[1]
 
     # 証券コード1000~9999
-    for stock_code in range(1000, 100000):
+    for stock_code in range(1000, 10000):
         # 対象外の証券コードの場合はスキップ
         if str(stock_code) in na_stock_code_list:
             continue
+
+        '''
+        一度全銘柄でチェックを入れたので当分はチェックを入れない
+        処理最適化後に入れる
+        ただ毎日入れるのは時間がかかりすぎるので、月1とか?
 
         # みんかぶから上場廃止/時価総額チェック
         result = get_price(stock_code)
         # 上場廃止or時価総額500億以上ならパス
         if not result:
             continue
+        '''
 
         # 指定した証券コードの最新データ日(≠最新取得日)を取得
         if str(stock_code) in recorded_date_dict:
