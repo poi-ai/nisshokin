@@ -303,6 +303,12 @@ def line_send(message):
     '''
     TOKEN = ''
 
+    # LINEトークンを取得
+    with open('line_token.txt', 'r') as file:
+        TOKEN = file.read().strip()
+
+    if TOKEN == '': return
+
     # リクエスト内容を設定
     headers = {'Authorization': f'Bearer {TOKEN}'}
     data = {'message': f'{message}'}
