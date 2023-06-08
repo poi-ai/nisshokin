@@ -23,7 +23,7 @@ def main():
     na_stock_code_list, recorded_date_dict = extruct_stock_data()
 
     # 証券コード1000~9999
-    for stock_code in range(1000, 100000):
+    for stock_code in range(1000, 10000):
         # 対象外の証券コードの場合はスキップ
         if str(stock_code) in na_stock_code_list:
             continue
