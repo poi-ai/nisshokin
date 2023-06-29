@@ -1,16 +1,17 @@
 import csv
-import datetime
 import itertools
+import nlog
 import os
-import pytz
 import time
 import re
 import requests
+from datetime import datetime
 from bs4 import BeautifulSoup
 
 def main():
     '''主処理'''
     global now
+    global log
 
     # 曜日チェック
     weekday = now.weekday()
@@ -20,7 +21,7 @@ def main():
         exit()
 
     # 取得対象でない銘柄の証券コードリストと銘柄の最新取得日をCSVから取得
-    na_stock_code_list, recorded_date_dict = extruct_stock_data()
+    na_stock_code_list, recorded_date_dict = extruct_stock_code()
 
     # 証券コード1000~9999
     for stock_code in range(1000, 10000):
@@ -66,21 +67,14 @@ def main():
     # 一時ファイルの情報を写し、一時ファイルを削除する
     result = move_data()
 
-def extruct_stock_data():
+def extruct_stock_code():
     '''取得対象でない銘柄の証券コードリストと銘柄の最新取得日をCSVから取得'''
+
     # 対象外の証券コードをCSVから取得
-    na_stock_code_list = []
-    with open('na_stock_code.csv', 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            na_stock_code_list.append(row[0])
+    na_stock_code_list = [code_list[1] for code_list in get_csv('na_stock_code')]
 
     # 各銘柄の最新取得日をCSVから取得
-    recorded_date_dict = {}
-    with open('recorded_date.csv', 'r', encoding='utf-8') as file:
-        reader = csv.reader(file)
-        for row in reader:
-            recorded_date_dict[row[0]] = row[1]
+    recorded_date_dict = dict((row[0], row[1]) for row in get_csv('recorded_date'))
 
     return na_stock_code_list, recorded_date_dict
 
@@ -295,7 +289,8 @@ def move_data():
     os.remove('tmp_nisshokin_data_2023.csv')
 
 def line_send(message):
-    '''LINE Notify経由でメッセージを送信する
+    '''
+    LINE Notifyを用いてメッセージを送信する
 
     Args:
         message(str) : LINE送信するメッセージ内容
@@ -316,9 +311,23 @@ def line_send(message):
     # メッセージ送信
     requests.post('https://notify-api.line.me/api/notify', headers = headers, data = data)
 
+def get_csv(file_name):
+    '''
+    CSVファイルからデータを取得する
+
+    Args:
+        file_name(str): ファイル名(拡張子なし)
+
+    Return:
+        rows(list[list[]]): CSVのデータ
+    '''
+    with open(f'{file_name}.csv', 'r', encoding = 'utf-8') as f:
+        rows = list(csv.reader(f))
+    return rows
+
 if __name__ == '__main__':
-    # 現在時刻
-    datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
+    now = datetime.now()
+    log = nlog.NisshokinLog()
     main()
     #get_price(1305)
     #get_price(7203) # ファストリ
