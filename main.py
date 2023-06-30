@@ -165,20 +165,18 @@ def get_data(stock_code, url, recorded_date, latest_flag):
         # 記録済み日付管理CSVの日付より最新の日付データを取得した場合はCSVを更新する
         if latest_flag:
             # CSVから同じコードの行があるかチェック
-            with open('recorded_date.csv', 'r', newline='') as file:
-                reader = csv.reader(file)
-                rows = list(reader)
+            rows = get_csv('recorded_date')
 
-                found_flag = False
-                for row in rows:
-                    if row[0] == stock_code:
-                        row[1] = date
-                        found_flag = True
-                        break
+            found_flag = False
+            for row in rows:
+                if row[0] == stock_code:
+                    row[1] = date
+                    found_flag = True
+                    break
 
-                # 無ければ末尾に追記
-                if not found_flag:
-                    rows.append([str(stock_code), date])  # 新しい行を末尾に追加
+            # 無ければ末尾に追記
+            if not found_flag:
+                rows.append([str(stock_code), date])  # 新しい行を末尾に追加
 
             # 更新したデータを上書き
             with open('recorded_date.csv', 'w', newline='') as file:
@@ -255,18 +253,18 @@ def create_report():
     target_flag = False
 
     # 今回のプロセスで取得したデータを取得
-    with open('tmp_nisshokin_data_2023.csv', 'r', encoding='utf-8') as file:
-        reader = csv.reader(file)
-        for row in reader:
-            # 貸株が5000株以上増かつ前日比80%以上増 TODO 0除算チェック
-            if (row[3] >= 5000) and (row[3] / row[2] >= 0.8):
-                report += f'[{row[0]}] {row[1]} 残: {row[2]} / 増減: {row[3]}\n'
-                target_flag = True
+    rows = get_csv('tmp_nisshokin_data_2023')
 
-            # 貸株が5000株以上減かつ前日比80%以上減
-            if (row[3] <= -5000) and (row[3] / row[2] <= -0.8):
-                report += f'[{row[0]}] {row[1]} 残: {row[2]} / 増減: {row[3]}\n'
-                target_flag = True
+    for row in rows:
+        # 貸株が5000株以上増かつ前日比80%以上増 TODO 0除算チェック
+        if (row[3] >= 5000) and (row[3] / row[2] >= 0.8):
+            report += f'[{row[0]}] {row[1]} 残: {row[2]} / 増減: {row[3]}\n'
+            target_flag = True
+
+        # 貸株が5000株以上減かつ前日比80%以上減
+        if (row[3] <= -5000) and (row[3] / row[2] <= -0.8):
+            report += f'[{row[0]}] {row[1]} 残: {row[2]} / 増減: {row[3]}\n'
+            target_flag = True
 
     if not target_flag: report += '異常増減した銘柄はありませんでした'
 
@@ -276,9 +274,7 @@ def move_data():
     '''一時ファイルに保存したデータを移動させる'''
 
     # 一時ファイルからデータ読み込み
-    with open('tmp_nisshokin_data_2023.csv', 'r', newline='', encoding="utf-8") as f:
-        reader = csv.reader(f)
-        data = list(reader)
+    data = get_csv('tmp_nisshokin_data_2023')
 
     # データ書き込み
     with open('nisshokin_data_2023.csv', 'a', newline='', encoding="utf-8") as f:
