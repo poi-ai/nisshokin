@@ -92,9 +92,11 @@ def main():
 
     # 一時ファイルの情報を写し、一時ファイルを削除する
     try:
+        log.info(f'一時ファイル転記処理開始')
         move_data(now.strftime('%y'))
+        log.info(f'一時ファイル転記処理終了')
     except Exception as e:
-        error_output('一時ファイルのコピー・削除処理でエラー',e, traceback.format_exc())
+        error_output('一時ファイル転記処理でエラー',e, traceback.format_exc())
 
 def extruct_stock_code():
     '''取得対象でない銘柄の証券コードリストと銘柄の最新取得日をCSVから取得'''
@@ -130,9 +132,7 @@ def get_data(stock_code, url, recorded_date, latest_flag):
 
     # テーブルがない(=日証金情報がない)場合は取得対象外の証券コードとしてCSVに書き込み
     if table is None:
-        with open('na_stock_code.csv', 'a', encoding = 'utf-8', newline = '') as f:
-            writer = csv.writer(f, lineterminator = '\n')
-            writer.writerow([stock_code, time.strftime('%Y/%m/%d'), 'not exist'])
+        add_csv('na_stock_code', [stock_code, time.strftime('%Y/%m/%d'), 'not exist'])
         return True
 
     tbody = table.find('tbody')
@@ -184,12 +184,9 @@ def get_data(stock_code, url, recorded_date, latest_flag):
         yushi_type = br_to_comma(td_info[4]).split(',')
 
         # データをCSVに一時ファイルのCSVに書き込む
-        with open(f'tmp_nisshokin_data_{year}.csv', 'a', newline='') as file:
-            writer = csv.writer(file)
-
-            row = [stock_code, date, kashikabu_zan[0], kashikabu_zan[1], kashikabu_type[0], kashikabu_type[1],
-                   yushi_zan[0], yushi_zan[1], yushi_type[0], yushi_type[1]]
-            writer.writerow(row)
+        row = [stock_code, date, kashikabu_zan[0], kashikabu_zan[1], kashikabu_type[0], kashikabu_type[1],
+                yushi_zan[0], yushi_zan[1], yushi_type[0], yushi_type[1]]
+        add_csv(f'tmp_nisshokin_data_{year}', row)
 
         # 記録済み日付管理CSVの日付より最新の日付データを取得した場合はCSVを更新する
         if latest_flag:
@@ -208,7 +205,7 @@ def get_data(stock_code, url, recorded_date, latest_flag):
                 rows.append([str(stock_code), date])  # 新しい行を末尾に追加
 
             # 更新したデータを上書き
-            with open('recorded_date.csv', 'w', newline='') as file:
+            with open('recorded_date.csv', 'w', newline = '') as file:
                 writer = csv.writer(file)
                 writer.writerows(rows)
 
@@ -251,25 +248,20 @@ def get_price(stock_code):
 
     # 取れなかったらエラーとしてファイルに書き込む、取れたら削除
     if int(price) == -1:
-        with open('failed_stock_code.csv', 'a', encoding = 'utf-8', newline = '') as f:
-            writer = csv.writer(f, lineterminator = '\n')
-            writer.writerow([stock_code, time.strftime('%Y/%m/%d'), 'not get price'])
+        add_csv('failed_stock_code', [stock_code, time.strftime('%Y/%m/%d'), 'not get price'])
         return False
     else:
         # 取れたら削除
-        with open('failed_stock_code.csv', "r", encoding="utf-8") as file:
-            reader = csv.reader(file)
-            rows = [row for row in reader if str(row[0]) != str(stock_code)]
+        rows = get_csv('failed_stock_code')
+        data = [row for row in rows if str(row[0]) != str(stock_code)]
 
-        with open('failed_stock_code.csv', "w", encoding="utf-8", newline="") as file:
+        with open('failed_stock_code.csv', 'w', encoding = 'utf-8', newline = '') as file:
             writer = csv.writer(file)
-            writer.writerows(rows)
+            writer.writerows(data)
 
     # 300億以上は対象外
     if int(price) >= 30000:
-        with open('na_stock_code.csv', 'a', encoding = 'utf-8', newline = '') as f:
-            writer = csv.writer(f, lineterminator = '\n')
-            writer.writerow([stock_code, time.strftime('%Y/%m/%d'), 'too big'])
+        add_csv('na_stock_code', [stock_code, time.strftime('%Y/%m/%d'), 'too big'])
         return False
 
     return True
@@ -305,10 +297,8 @@ def move_data(year):
     # 一時ファイルからデータ読み込み
     data = get_csv(f'tmp_nisshokin_data_{year}')
 
-    # データ書き込み
-    with open(f'nisshokin_data_{year}.csv', 'a', newline='', encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerows(data)
+    # 記録用のCSVにデータ書き込み
+    add_csv(f'nisshokin_data_{year}', data, single = False)
 
     # 一時ファイル削除
     os.remove(f'tmp_nisshokin_data_{year}.csv')
@@ -370,14 +360,23 @@ def get_csv(file_name):
         rows = list(csv.reader(f))
     return rows
 
+def add_csv(file_name, data, single = True):
+    '''
+    CSVファイルへデータを追記する
+
+    Args:
+        file_name(str): 書き込み先のCSVファイル名(拡張子なし)
+        data(str): 書き込むデータ
+        single(bool): 書き込む行は一行か複数行か
+    '''
+    with open(f'{file_name}.csv', 'a', encoding = 'utf-8', newline = '') as f:
+        writer = csv.writer(f, lineterminator = '\n')
+        if single:
+            writer.writerow(data)
+        else:
+            writer.writerows(data)
+
 if __name__ == '__main__':
     now = datetime.now()
     log = nlog.NisshokinLog()
     main()
-    #get_price(1305)
-    #get_price(7203) # ファストリ
-    #get_price(2172) # インサイト
-
-
-# TODO エラーが出たときのリカバリ処理(try-except)
-## TODO 特に一部データ取得成功で一部失敗とかいう場合
