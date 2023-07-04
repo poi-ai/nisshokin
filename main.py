@@ -3,9 +3,10 @@ import itertools
 import nlog
 import os
 import time
+import traceback
 import re
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
 def main():
@@ -16,17 +17,29 @@ def main():
     # 曜日チェック
     weekday = now.weekday()
 
+    # 月初営業日チェック
+    first_business_day = False
+    if now.date().day == 1 or (now.date().day <= 3 and now.date().weekday() == 0):
+        first_business_day = True
+
     # 前日が営業日でない場合は取得しない
     if weekday == 5 or weekday == 6:
         exit()
 
     # 取得対象でない銘柄の証券コードリストと銘柄の最新取得日をCSVから取得
-    na_stock_code_list, recorded_date_dict = extruct_stock_code()
+    log.info('銘柄情報CSV読み込み開始')
+    try:
+        na_stock_code_list, recorded_date_dict = extruct_stock_code()
+    except Exception as e:
+        error_output('銘柄情報CSV読み込み処理でエラー', e, traceback.format_exc())
+        exit()
+    log.info('銘柄情報CSV読み込み終了')
 
-    # 証券コード1000~9999
+    # 証券コード1000 ~ 9999
     for stock_code in range(1000, 10000):
         # 対象外の証券コードの場合はスキップ
         if str(stock_code) in na_stock_code_list:
+            log.info(f'銘柄コード: {stock_code}は取得対象外です')
             continue
 
         '''
@@ -48,24 +61,40 @@ def main():
             # CSVにデータがない(=記録したことがない)銘柄は最新取得日を1年にする
             recorded_date = '0001/01/01'
 
+        # 最新データが30日以上前の場合は月初にしかチェックしない
+        if not first_business_day:
+            if recorded_date != '0001/01/01' and datetime.strptime(recorded_date, '%Y/%m/%d').date() <= now.date() - timedelta(days = 30):
+                log.info(f'銘柄コード: {stock_code}は1か月以上日証金での取引がないため取得対象外です')
+                continue
+
         # IR BANKから日証金情報を取得
+        log.info(f'銘柄コード: {stock_code}の日証金情報取得処理開始')
         url = f'https://irbank.net/{stock_code}/nisshokin'
-        result = get_data(str(stock_code), url, recorded_date, True)
+        try:
+            get_data(str(stock_code), url, recorded_date, True)
+        except Exception as e:
+            error_output('日証金情報取得処理でエラー', e, traceback.format_exc())
+        log.info(f'銘柄コード: {stock_code}の日証金情報取得処理終了')
 
-        # 処理に失敗した場合
-        if not result:
-            pass
+    # 貸株が異常増減したデータのレポートを作成し、LINEで送信する
+    try:
+        # レポートを作成する
+        log.info(f'レポート作成処理開始')
+        report = create_report()
+        log.info(f'レポート作成処理終了')
 
-    # 取得データで増減率の多かったもののレポートを作成する
-    report = create_report()
-
-    # レポートをLINEで送信する
-    result = line_send(report)
-
-    if not result: pass
+        # レポートをLINEで送信する
+        log.info(f'レポート送信処理開始')
+        line_send(report)
+        log.info(f'レポート送信処理終了')
+    except Exception as e:
+        error_output('レポート作成・送信処理でエラー', e, traceback.format_exc())
 
     # 一時ファイルの情報を写し、一時ファイルを削除する
-    result = move_data()
+    try:
+        move_data(now.strftime('%y'))
+    except Exception as e:
+        error_output('一時ファイルのコピー・削除処理でエラー',e, traceback.format_exc())
 
 def extruct_stock_code():
     '''取得対象でない銘柄の証券コードリストと銘柄の最新取得日をCSVから取得'''
@@ -253,7 +282,7 @@ def create_report():
     target_flag = False
 
     # 今回のプロセスで取得したデータを取得
-    rows = get_csv('tmp_nisshokin_data_2023')
+    rows = get_csv(f'tmp_nisshokin_data_{now.strftime("%y")}')
 
     for row in rows:
         # 貸株が5000株以上増かつ前日比80%以上増 TODO 0除算チェック
@@ -270,19 +299,19 @@ def create_report():
 
     return report
 
-def move_data():
+def move_data(year):
     '''一時ファイルに保存したデータを移動させる'''
 
     # 一時ファイルからデータ読み込み
-    data = get_csv('tmp_nisshokin_data_2023')
+    data = get_csv(f'tmp_nisshokin_data_{year}')
 
     # データ書き込み
-    with open('nisshokin_data_2023.csv', 'a', newline='', encoding="utf-8") as f:
+    with open(f'nisshokin_data_{year}.csv', 'a', newline='', encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerows(data)
 
     # 一時ファイル削除
-    os.remove('tmp_nisshokin_data_2023.csv')
+    os.remove(f'tmp_nisshokin_data_{year}.csv')
 
 def line_send(message):
     '''
@@ -290,7 +319,6 @@ def line_send(message):
 
     Args:
         message(str) : LINE送信するメッセージ内容
-
     '''
     TOKEN = ''
 
@@ -306,6 +334,27 @@ def line_send(message):
 
     # メッセージ送信
     requests.post('https://notify-api.line.me/api/notify', headers = headers, data = data)
+
+def error_output(message, e = None, stacktrace = None):
+        '''
+        エラー時のログ出力/LINE通知を行う
+        Args:
+            message(str) : エラーメッセージ
+            e(str) : エラー名
+            stacktrace(str) : スタックトレース(traceback.format_exc())
+        '''
+        line_message = message
+        log.error(message)
+
+        if e != None:
+            log.error(e)
+            line_message += f'\n{e}'
+
+        if stacktrace != None:
+            log.error(stacktrace)
+            line_message += f'\n{stacktrace}'
+
+        line_send(line_message)
 
 def get_csv(file_name):
     '''
